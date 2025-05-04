@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NFC Attendance Collector</title>
+    <meta name="theme-color" content="#4285F4">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/papaparse/5.3.2/papaparse.min.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-blue-600">NFC Attendance Collector</h1>
+            <p class="text-gray-600 mt-2">Collect attendance with NFC taps</p>
+        </header>
+
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">Event Setup</h2>
+            <div class="mb-4">
+                <label for="eventName" class="block text-gray-700 mb-2">Event Name:</label>
+                <input type="text" id="eventName" class="w-full p-2 border rounded" placeholder="Enter event name">
+            </div>
+            <div class="mb-4">
+                <label for="eventDate" class="block text-gray-700 mb-2">Event Date:</label>
+                <input type="date" id="eventDate" class="w-full p-2 border rounded">
+            </div>
+            <button id="saveEventBtn" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Save Event Details</button>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">Attendance Collection</h2>
+            <div class="text-center mb-6">
+                <div id="nfcStatus" class="text-lg font-medium mb-4">NFC Ready: Checking...</div>
+                <button id="startScanBtn" class="bg-green-500 text-white px-6 py-3 rounded-lg text-lg hover:bg-green-600 shadow-md disabled:bg-gray-400" disabled>
+                    Start NFC Scanning
+                </button>
+                <div id="nfcAnimation" class="hidden mt-4">
+                    <div class="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                    <p class="mt-2 text-blue-600">Waiting for NFC tap...</p>
+                </div>
+            </div>
+            <div id="lastScanned" class="hidden bg-green-100 p-4 rounded-lg mb-4">
+                <h3 class="font-semibold text-green-800">Last Scanned:</h3>
+                <p id="lastScannedInfo" class="text-green-700"></p>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">Attendee List</h2>
+            <div class="mb-4">
+                <p><span id="attendeeCount">0</span> attendees collected</p>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full bg-white">
+                    <thead>
+                        <tr>
+                            <th class="px-4 py-2 text-left text-gray-700">Name</th>
+                            <th class="px-4 py-2 text-left text-gray-700">ID/Email</th>
+                            <th class="px-4 py-2 text-left text-gray-700">Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="attendeeList">
+                        <!-- Attendees will be added here -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-4 flex justify-end">
+                <button id="exportCsvBtn" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 mr-2">Export CSV</button>
+                <button id="clearDataBtn" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">Clear All Data</button>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">Attendee Registration</h2>
+            <p class="mb-4">Use this QR code for attendees to register their NFC data:</p>
+            <div id="qrCode" class="mx-auto mb-4 bg-gray-200 p-4 text-center">
+                <img src="/api/placeholder/200/200" alt="Registration QR Code" class="mx-auto">
+            </div>
+            <div class="text-center">
+                <button id="copyRegLinkBtn" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+                    Copy Registration Link
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Registration Form Modal -->
+    <div id="registrationModal" class="fixed inset-0 bg-black bg-opacity-50 hidden justify-center items-center">
+        <div class="bg-white p-6 rounded-lg shadow-lg max-w-md w-full">
+            <h2 class="text-xl font-semibold mb-4">Register for Event</h2>
+            <div class="mb-4">
+                <label for="regName" class="block text-gray-700 mb-2">Your Name:</label>
+                <input type="text" id="regName" class="w-full p-2 border rounded" placeholder="Enter your name">
+            </div>
+            <div class="mb-4">
+                <label for="regEmail" class="block text-gray-700 mb-2">Email or ID:</label>
+                <input type="text" id="regEmail" class="w-full p-2 border rounded" placeholder="Enter your email or ID">
+            </div>
+            <div class="text-center mb-4">
+                <button id="writeNfcBtn" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
+                    Write to my NFC
+                </button>
+            </div>
+            <div id="nfcWriteStatus" class="hidden text-center py-2">
+                <p class="text-blue-600">Please hold your phone near the NFC tag...</p>
+            </div>
+            <div class="text-center">
+                <button id="closeModalBtn" class="text-gray-600 hover:text-gray-800">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Store for attendees
+        let attendees = [];
+        let eventDetails = {
+            name: "",
+            date: ""
+        };
+        let isScanning = false;
+
+        // Check if NFC is supported
+        document.addEventListener('DOMContentLoaded', async () => {
+            const nfcStatus = document.getElementById('nfcStatus');
+            const startScanBtn = document.getElementById('startScanBtn');
+            
+            // Load saved data
+            loadSavedData();
+
+            // Check if NFC is available
+            if ('NDEFReader' in window) {
+                nfcStatus.textContent = "NFC Ready: Available";
+                nfcStatus.classList.add('text-green-600');
+                startScanBtn.disabled = false;
+            } else {
+                nfcStatus.textContent = "NFC Ready: Not supported on this device";
+                nfcStatus.classList.add('text-red-600');
+            }
+
+            // Set up event listeners
+            document.getElementById('saveEventBtn').addEventListener('click', saveEventDetails);
+            document.getElementById('startScanBtn').addEventListener('click', toggleNfcScan);
+            document.getElementById('exportCsvBtn').addEventListener('click', exportToCsv);
+            document.getElementById('clearDataBtn').addEventListener('click', clearAllData);
+            document.getElementById('copyRegLinkBtn').addEventListener('click', copyRegistrationLink);
+            
+            // Registration modal buttons
+            document.getElementById('closeModalBtn').addEventListener('click', closeRegistrationModal);
+            document.getElementById('writeNfcBtn').addEventListener('click', writeNfcData);
+        });
+
+        // Save event details
+        function saveEventDetails() {
+            const eventName = document.getElementById('eventName').value.trim();
+            const eventDate = document.getElementById('eventDate').value;
+            
+            if (eventName && eventDate) {
+                eventDetails.name = eventName;
+                eventDetails.date = eventDate;
+                localStorage.setItem('eventDetails', JSON.stringify(eventDetails));
+                alert('Event details saved!');
+            } else {
+                alert('Please fill in all event details.');
+            }
+        }
+
+        // Toggle NFC scanning
+        async function toggleNfcScan() {
+            const startScanBtn = document.getElementById('startScanBtn');
+            const nfcAnimation = document.getElementById('nfcAnimation');
+            
+            if (isScanning) {
+                // Stop scanning
+                isScanning = false;
+                startScanBtn.textContent = 'Start NFC Scanning';
+                startScanBtn.classList.replace('bg-red-500', 'bg-green-500');
+                startScanBtn.classList.replace('hover:bg-red-600', 'hover:bg-green-600');
+                nfcAnimation.classList.add('hidden');
+            } else {
+                // Start scanning
+                isScanning = true;
+                startScanBtn.textContent = 'Stop NFC Scanning';
+                startScanBtn.classList.replace('bg-green-500', 'bg-red-500');
+                startScanBtn.classList.replace('hover:bg-green-600', 'hover:bg-red-600');
+                nfcAnimation.classList.remove('hidden');
+                
+                try {
+                    const ndef = new NDEFReader();
+                    await ndef.scan();
+                    
+                    ndef.addEventListener("reading", ({ message, serialNumber }) => {
+                        if (isScanning) {
+                            processNfcScan(message);
+                        }
+                    });
+                    
+                    ndef.addEventListener("readingerror", () => {
+                        alert("Error reading NFC tag");
+                    });
+                } catch (error) {
+                    alert(`Error setting up NFC: ${error}`);
+                    isScanning = false;
+                    startScanBtn.textContent = 'Start NFC Scanning';
+                    startScanBtn.classList.replace('bg-red-500', 'bg-green-500');
+                    startScanBtn.classList.replace('hover:bg-red-600', 'hover:bg-green-600');
+                    nfcAnimation.classList.add('hidden');
+                }
+            }
+        }
+
+        // Process NFC scan data
+        function processNfcScan(message) {
+            // Try to decode the NDEF message
+            try {
+                const records = message.records;
+                let attendeeData = null;
+                
+                for (const record of records) {
+                    if (record.recordType === "text") {
+                        const textDecoder = new TextDecoder(record.encoding);
+                        const text = textDecoder.decode(record.data);
+                        try {
+                            attendeeData = JSON.parse(text);
+                            break;
+                        } catch (e) {
+                            // Not JSON data, try another record
+                        }
+                    }
+                }
+                
+                if (attendeeData && attendeeData.name && attendeeData.id) {
+                    // Valid attendee data found
+                    const timestamp = new Date().toLocaleString();
+                    const newAttendee = {
+                        name: attendeeData.name,
+                        id: attendeeData.id,
+                        timestamp: timestamp
+                    };
+                    
+                    // Add to list and save
+                    attendees.push(newAttendee);
+                    saveAttendees();
+                    updateAttendeeList();
+                    
+                    // Show last scanned info
+                    const lastScanned = document.getElementById('lastScanned');
+                    const lastScannedInfo = document.getElementById('lastScannedInfo');
+                    lastScanned.classList.remove('hidden');
+                    lastScannedInfo.textContent = `${newAttendee.name} (${newAttendee.id}) - ${timestamp}`;
+                } else {
+                    alert("Invalid or missing attendee data in NFC tag");
+                }
+            } catch (error) {
+                alert(`Error processing NFC data: ${error}`);
+            }
+        }
+
+        // Write NFC data
+        async function writeNfcData() {
+            const name = document.getElementById('regName').value.trim();
+            const id = document.getElementById('regEmail').value.trim();
+            
+            if (!name || !id) {
+                alert("Please fill in all fields");
+                return;
+            }
+            
+            const attendeeData = {
+                name: name,
+                id: id
+            };
+            
+            const nfcWriteStatus = document.getElementById('nfcWriteStatus');
+            nfcWriteStatus.classList.remove('hidden');
+            
+            try {
+                const ndef = new NDEFReader();
+                await ndef.write({
+                    records: [{
+                        recordType: "text",
+                        data: JSON.stringify(attendeeData)
+                    }]
+                });
+                
+                alert("NFC tag written successfully!");
+                nfcWriteStatus.classList.add('hidden');
+                closeRegistrationModal();
+            } catch (error) {
+                alert(`Error writing to NFC: ${error}`);
+                nfcWriteStatus.classList.add('hidden');
+            }
+        }
+
+        // Update attendee list in UI
+        function updateAttendeeList() {
+            const list = document.getElementById('attendeeList');
+            const count = document.getElementById('attendeeCount');
+            
+            // Update count
+            count.textContent = attendees.length;
+            
+            // Clear and rebuild list
+            list.innerHTML = '';
+            attendees.forEach(attendee => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="border px-4 py-2">${attendee.name}</td>
+                    <td class="border px-4 py-2">${attendee.id}</td>
+                    <td class="border px-4 py-2">${attendee.timestamp}</td>
+                `;
+                list.appendChild(row);
+            });
+        }
+
+        // Export to CSV
+        function exportToCsv() {
+            if (attendees.length === 0) {
+                alert("No attendees to export");
+                return;
+            }
+            
+            const csv = Papa.unparse({
+                fields: ["name", "id", "timestamp"],
+                data: attendees
+            });
+            
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.setAttribute('href', url);
+            link.setAttribute('download', `${eventDetails.name || 'event'}_attendance.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // Clear all data
+        function clearAllData() {
+            if (confirm("Are you sure you want to clear all attendance data? This cannot be undone.")) {
+                attendees = [];
+                saveAttendees();
+                updateAttendeeList();
+                document.getElementById('lastScanned').classList.add('hidden');
+            }
+        }
+
+        // Copy registration link
+        function copyRegistrationLink() {
+            const currentUrl = window.location.href;
+            const regLink = `${currentUrl}#register`;
+            
+            navigator.clipboard.writeText(regLink).then(() => {
+                alert("Registration link copied to clipboard!");
+            }).catch(err => {
+                alert("Failed to copy registration link");
+            });
+        }
+
+        // Show registration modal
+        function showRegistrationModal() {
+            document.getElementById('registrationModal').classList.replace('hidden', 'flex');
+        }
+
+        // Close registration modal
+        function closeRegistrationModal() {
+            document.getElementById('registrationModal').classList.replace('flex', 'hidden');
+            document.getElementById('nfcWriteStatus').classList.add('hidden');
+        }
+
+        // Save attendees to localStorage
+        function saveAttendees() {
+            localStorage.setItem('attendees', JSON.stringify(attendees));
+        }
+
+        // Load saved data from localStorage
+        function loadSavedData() {
+            // Load event details
+            const savedEventDetails = localStorage.getItem('eventDetails');
+            if (savedEventDetails) {
+                eventDetails = JSON.parse(savedEventDetails);
+                document.getElementById('eventName').value = eventDetails.name;
+                document.getElementById('eventDate').value = eventDetails.date;
+            }
+            
+            // Load attendees
+            const savedAttendees = localStorage.getItem('attendees');
+            if (savedAttendees) {
+                attendees = JSON.parse(savedAttendees);
+                updateAttendeeList();
+            }
+        }
+
+        // Check if we should show registration screen based on URL hash
+        if (window.location.hash === '#register') {
+            showRegistrationModal();
+        }
+
+        // Listen for hash changes
+        window.addEventListener('hashchange', () => {
+            if (window.location.hash === '#register') {
+                showRegistrationModal();
+            }
+        });
+    </script>
+</body>
+</html>
